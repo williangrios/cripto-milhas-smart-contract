@@ -1,0 +1,26 @@
+{
+  "name": "cripto-milhas-contract",
+  "version": "1.0.0",
+  "description": "Cripto-milhas contract",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "cripto-milhas-contract"
+  },
+  "keywords": [
+    "cripto-milhas",
+    "solidity",
+    "smart-contract",
+    "marketplace"
+  ],
+  "author": "Willian Rios",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^1.0.2",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.17.0"
+  }
+}
