@@ -5,19 +5,13 @@ import "@nomicfoundation/hardhat-toolbox";
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.19",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 1000
-      }
-    },
   },
   defaultNetwork: "hardhat",
   networks: {
     //setting forking data
     hardhat: {
       forking: {
-        url: "https://eth-mainnet.g.alchemy.com/v2/",
+        url: "https://eth-mainnet.g.alchemy.com/v2/SKEZZEasoBhw2PixrKv9m2r8ZvB1mmnp",
         blockNumber: 17713305
       }
     },

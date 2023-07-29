@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: None
 pragma solidity 0.8.19;
 
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 contract Owned {
+    using SafeERC20 for IERC20;
     //errors
     error OnlyOwner();
 
@@ -23,21 +26,6 @@ contract Owned {
     function getContractOwner() public view returns (address) {
         return owner;
     }
-}
-
-interface IERC20 {
-    function transfer(
-        address recipient,
-        uint256 amount
-    ) external returns (bool);
-
-    function balanceOf(address account) external view returns (uint256);
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) external returns (bool);
 }
 
 contract CriptoMilhas is Owned {
@@ -72,14 +60,8 @@ contract CriptoMilhas is Owned {
 
     //structs
     enum Category {
-        None,
-        Trip,
-        ClassUpgrade,
-        Hotel,
         Product,
-        Event,
-        CarRental,
-        Other
+        Service
     }
 
     enum Status {
@@ -115,17 +97,10 @@ contract CriptoMilhas is Owned {
     //constructor
     constructor() {
         owner = msg.sender;
-        feesByCategory[Category.None] = 15;
-        feesByCategory[Category.Trip] = 12;
-        feesByCategory[Category.ClassUpgrade] = 13;
-        feesByCategory[Category.Hotel] = 11;
-        feesByCategory[Category.Product] = 10;
-        feesByCategory[Category.Event] = 12;
-        feesByCategory[Category.CarRental] = 11;
-        feesByCategory[Category.Other] = 11;
+        feesByCategory[Category.Service] = 15;
+        feesByCategory[Category.Product] = 12;
     }
 
-    //functions
     function purchase(
         uint256 _purchaseId,
         address _tokenAddress,
@@ -140,18 +115,11 @@ contract CriptoMilhas is Owned {
             unicode"Endereço do token inválido"
         );
         require(dateToReceiveProduct > block.timestamp, unicode"Data inválida");
-
         IERC20 token = IERC20(_tokenAddress);
-
-        //checando se o comprador tem tokens suficientes
         uint256 tokenAmount = token.balanceOf(msg.sender);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
-
-        require(
-            token.transfer(address(this), _value),
-            unicode"Falha na transferência de tokens"
-        );
-
+        bool success = token.transferFrom(msg.sender, address(this), _value);
+        require(success == true, unicode"Erro na transferência de tokens");
         purchases[_purchaseId] = Purchase({
             tokenAddress: _tokenAddress,
             buyer: msg.sender,
@@ -226,20 +194,14 @@ contract CriptoMilhas is Owned {
             block.timestamp > _purchase.withdrawalDate,
             unicode"Ainda não é permitido fazer a retirada, aguarde o prazo"
         );
-
         _purchase.status = Status.WithdrawnBySeller;
         _purchase.withdrawnDate = block.timestamp;
-
         uint feeValue = (_purchase.value * _purchase.purchaseFeePercentage) /
             100;
-
         // Realizar a transferência dos fundos para o vendedor
         IERC20 token = IERC20(_purchase.tokenAddress);
         require(
-            token.transfer(
-                msg.sender,
-                _purchase.value - feeValue
-            ),
+            token.transfer(msg.sender, _purchase.value - feeValue),
             unicode"Falha na transferência dos fundos"
         );
         require(
@@ -248,22 +210,22 @@ contract CriptoMilhas is Owned {
         );
     }
 
-    // function buyerWithdraw(
-    //     uint256 _purchaseId
-    // ) external onlyBuyer(_purchaseId) {
-    //     Purchase storage _purchase = purchases[_purchaseId];
-    //     require(
-    //         _purchase.status == Status.BuyerWithdrawalApproved,
-    //         unicode"O status atual não permite a retirada"
-    //     );
-    //     _purchase.status = Status.RefundedToBuyer;
-    //     _purchase.refundedDate = block.timestamp;
-    //     IERC20 token = IERC20(_purchase.tokenAddress);
-    //     require(
-    //         token.transfer(msg.sender, _purchase.value),
-    //         unicode"Falha na transferência dos fundos"
-    //     );
-    // }
+    function buyerWithdraw(
+        uint256 _purchaseId
+    ) external onlyBuyer(_purchaseId) {
+        Purchase storage _purchase = purchases[_purchaseId];
+        require(
+            _purchase.status == Status.BuyerWithdrawalApproved,
+            unicode"O status atual não permite a retirada"
+        );
+        _purchase.status = Status.RefundedToBuyer;
+        _purchase.refundedDate = block.timestamp;
+        IERC20 token = IERC20(_purchase.tokenAddress);
+        require(
+            token.transfer(msg.sender, _purchase.value),
+            unicode"Falha na transferência dos fundos"
+        );
+    }
 
     function mediatorDecision(
         uint256 _purchaseId,
