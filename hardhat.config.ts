@@ -12,7 +12,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         url: "https://eth-mainnet.g.alchemy.com/v2/SKEZZEasoBhw2PixrKv9m2r8ZvB1mmnp",
-        blockNumber: 17713305
+        blockNumber: 17801589
       }
     },
     //setting mumbai testnet

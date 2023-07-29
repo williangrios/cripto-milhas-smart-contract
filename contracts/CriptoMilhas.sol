@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: None
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Owned {
-    using SafeERC20 for IERC20;
     //errors
     error OnlyOwner();
 
@@ -107,14 +106,13 @@ contract CriptoMilhas is Owned {
         uint _value,
         address _seller,
         Category _Category,
-        uint dateToReceiveProduct,
-        uint daysToAdd
+        uint daysToAddOnReceiveProduct
     ) external {
         require(
             _tokenAddress != address(0),
             unicode"Endereço do token inválido"
         );
-        require(dateToReceiveProduct > block.timestamp, unicode"Data inválida");
+        require(daysToAddOnReceiveProduct > 7, unicode"Data inválida");
         IERC20 token = IERC20(_tokenAddress);
         uint256 tokenAmount = token.balanceOf(msg.sender);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
@@ -129,7 +127,7 @@ contract CriptoMilhas is Owned {
             value: _value,
             purchaseDate: block.timestamp,
             confirmationDate: 0,
-            withdrawalDate: dateToReceiveProduct + (daysToAdd * 1 days),
+            withdrawalDate: daysToAddOnReceiveProduct * 1 days,
             withdrawnDate: 0,
             refundRequestedDate: 0,
             refundedDate: 0,
