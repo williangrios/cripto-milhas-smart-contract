@@ -4,10 +4,7 @@ pragma solidity 0.8.19;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Owned {
-    //errors
     error OnlyOwner();
-
-    //state variables
     address public owner;
 
     modifier onlyOwner() {
@@ -17,7 +14,6 @@ contract Owned {
         _;
     }
 
-    //functions
     function setNewOwner(address newOwner) external onlyOwner {
         owner = newOwner;
     }
@@ -28,12 +24,10 @@ contract Owned {
 }
 
 contract CriptoMilhas is Owned {
-    //errors
     error OnlyBuyer();
     error OnlySeller();
     error OnlyMediators();
 
-    //modifiers
     modifier onlyBuyer(uint256 _purchaseId) {
         Purchase memory _purchase = purchases[_purchaseId];
         if (_purchase.buyer != msg.sender) {
@@ -57,7 +51,6 @@ contract CriptoMilhas is Owned {
         _;
     }
 
-    //structs
     enum Category {
         Product,
         Service
@@ -93,7 +86,6 @@ contract CriptoMilhas is Owned {
     mapping(uint256 => Purchase) purchases;
     mapping(address => bool) public mediators;
 
-    //constructor
     constructor() {
         owner = msg.sender;
         feesByCategory[Category.Service] = 15;

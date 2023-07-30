@@ -39,7 +39,6 @@ describe('ADMIN MODULE', () => {
 
   it('Should not others users set new owner', async function () {
     const { cmContract, owner, account2 } = await deployCriptoMilhasFixture();
-    //testing custom errors
     await expect(cmContract.connect(account2).setNewOwner(account2.address)).to.be.revertedWithCustomError(cmContract, 'OnlyOwner');
   })
 
@@ -51,7 +50,7 @@ describe('ADMIN MODULE', () => {
   })
 
   it('Should deny access to not mediators', async function () {
-    const { cmContract, owner, account2 } = await deployCriptoMilhasFixture();
+    const { cmContract, account2 } = await deployCriptoMilhasFixture();
     const mediator = await cmContract.mediators(account2.address);
     expect(mediator).to.equal(false)
   })
@@ -66,7 +65,7 @@ describe('ADMIN MODULE', () => {
   })
 
   it('Should not allow others users add others mediators', async function () {
-    const { cmContract, owner, mediator1, mediator2 } = await deployCriptoMilhasFixture();
+    const { cmContract, mediator1, mediator2 } = await deployCriptoMilhasFixture();
     await expect(cmContract.connect(mediator1).addMediators([mediator1.address, mediator2.address])).to.be.revertedWithCustomError(cmContract, 'OnlyOwner')
   })
 
@@ -76,7 +75,7 @@ describe('ADMIN MODULE', () => {
   })
 
   it('Should not allow users set fees', async function () {
-    const { cmContract, owner, account2 } = await deployCriptoMilhasFixture();
+    const { cmContract, account2 } = await deployCriptoMilhasFixture();
     await expect(cmContract.connect(account2).setFeeByCategory(1, 30)).to.be.revertedWithCustomError(cmContract, 'OnlyOwner');
   })
 
