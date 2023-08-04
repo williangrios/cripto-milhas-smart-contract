@@ -1,7 +1,15 @@
+// Dev: Willian Gonçalves Rios
+// O presente smart contract tem o objetivo de intermediar relações comerciais entre pessoas
+// interessadas na compra e venda de passagens aéreas e produtos
+// Neste smart-contract, a única autoridade do owner é adicionar e remover mediadores. O owner
+// não tem nenhum poder de fazer retiradas de fundos conforme você mesmo pode conferir no código.
+// As taxas que a plataforma recebe a título de intermediação são enviadas à wallet do owner todas
+// as vezes que o vendedor de passagem/produto faz sua retirada (ou seja, quando uma negociação
+// é bem sucedida), isso garante que nosso smart-contract sempre haverá fundos para pagar os usuários.
+
 // SPDX-License-Identifier: None
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Owned {
     error OnlyOwner();
@@ -23,6 +31,7 @@ contract Owned {
     }
 }
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract CriptoMilhas is Owned {
     error OnlyBuyer();
     error OnlySeller();
@@ -52,33 +61,39 @@ contract CriptoMilhas is Owned {
     }
 
     enum Category {
+        Other,
+        AirlineTickets,
         Product,
-        Service
+        Accomodation,
+        CarRental,
+        ClassUpgrade,
+        Event,
+        AdditionalFee // utilizada quando se precisa cancelar, remarcar voo etc
     }
 
     enum Status {
-        Purchased,
-        Confirmed,
-        WithdrawnBySeller,
-        RefundRequestedByBuyer,
-        BuyerWithdrawalApproved,
-        SellerWithdrawalApproved,
-        RefundedToBuyer
+        Purchased, // quando o comprador deposita os tokens
+        Confirmed, // quando o vendedor confirma que vai enviar o produto ou emitir a passagem
+        WithdrawnBySeller, // quando o vendedor resgatar seus fundos
+        RefundRequestedByBuyer, // o comprador pediu para travar os fundos por demora na chegada do produto ou dos tickets
+        BuyerWithdrawalApproved, // o mediador decidiu que o buyer pode resgatar
+        SellerWithdrawalApproved, // o mediador decidiu que o seller pode resgatar
+        RefundedToBuyer // quando o vendedor nao confirma em 24h e o comprador resgatou seu dinheiro
+                        // também pode acontecer quando o vendedor decide devolver o dinheiro para o comprador
     }
 
     struct Purchase {
-        address tokenAddress;
+        address tokenAddress; // endereço do smart-contract da stablecoin
         address buyer;
         address seller;
-        address cancellationConfirmedBy;
-        Status status;
-        uint value;
+        Status status; // status atual da compra
+        uint value; // quantidade de tokens
         uint purchaseDate;
-        uint confirmationDate;
-        uint withdrawalDate;
-        uint withdrawnDate;
-        uint refundRequestedDate;
-        uint refundedDate;
+        uint confirmationDate; // data em que o seller confirmou que vai vender
+        uint withdrawalAllowDate; // data em que o seller poderá fazer o saque
+        uint withdrawnDate; // data em que o seller fez o saque
+        uint refundRequestedDate; // data em que o buyer solicitou mediação
+        uint refundedDate; // data que os valores foram restituidos ao buyer (devolvidos na totalidade, sem taxas)
         uint purchaseFeePercentage;
     }
 
@@ -88,16 +103,22 @@ contract CriptoMilhas is Owned {
 
     constructor() {
         owner = msg.sender;
-        feesByCategory[Category.Service] = 15;
-        feesByCategory[Category.Product] = 12;
+        feesByCategory[Category.Other] = 10;
+        feesByCategory[Category.AirlineTickets] = 8;
+        feesByCategory[Category.Product] = 8;
+        feesByCategory[Category.Accomodation] = 7;
+        feesByCategory[Category.CarRental] = 7;
+        feesByCategory[Category.ClassUpgrade] = 6;
+        feesByCategory[Category.Event] = 6;
+        feesByCategory[Category.AdditionalFee] = 8;
     }
 
     function purchase(
         uint256 _purchaseId,
-        address _tokenAddress,
-        uint _value,
+        address _tokenAddress, // endereço do smart contract da stablecoin escolhida
+        uint _value, // quantidade de tokens
         address _seller,
-        Category _Category,
+        Category _Category, // categoria do produto/serviço
         uint daysToAddOnReceiveProduct
     ) external {
         require(
@@ -114,12 +135,11 @@ contract CriptoMilhas is Owned {
             tokenAddress: _tokenAddress,
             buyer: msg.sender,
             seller: _seller,
-            cancellationConfirmedBy: address(0),
             status: Status.Purchased,
             value: _value,
             purchaseDate: block.timestamp,
             confirmationDate: 0,
-            withdrawalDate: daysToAddOnReceiveProduct * 1 days,
+            withdrawalAllowDate: daysToAddOnReceiveProduct * 1 days,
             withdrawnDate: 0,
             refundRequestedDate: 0,
             refundedDate: 0,
@@ -181,7 +201,7 @@ contract CriptoMilhas is Owned {
             unicode"Não é permitido fazer a retirada devido ao status atual da compra"
         );
         require(
-            block.timestamp > _purchase.withdrawalDate,
+            block.timestamp > _purchase.withdrawalAllowDate,
             unicode"Ainda não é permitido fazer a retirada, aguarde o prazo"
         );
         _purchase.status = Status.WithdrawnBySeller;
