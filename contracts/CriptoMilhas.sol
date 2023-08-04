@@ -10,13 +10,12 @@
 // SPDX-License-Identifier: None
 pragma solidity 0.8.19;
 
-
 contract Owned {
     error OnlyOwner();
     address public owner;
 
     modifier onlyOwner() {
-        if (owner != msg.sender) {
+        if (owner != tx.origin) {
             revert OnlyOwner();
         }
         _;
@@ -39,7 +38,7 @@ contract CriptoMilhas is Owned {
 
     modifier onlyBuyer(uint256 _purchaseId) {
         Purchase memory _purchase = purchases[_purchaseId];
-        if (_purchase.buyer != msg.sender) {
+        if (_purchase.buyer != tx.origin) {
             revert OnlyBuyer();
         }
         _;
@@ -47,14 +46,14 @@ contract CriptoMilhas is Owned {
 
     modifier onlySeller(uint256 _purchaseId) {
         Purchase memory _purchase = purchases[_purchaseId];
-        if (_purchase.seller != msg.sender) {
+        if (_purchase.seller != tx.origin) {
             revert OnlySeller();
         }
         _;
     }
 
     modifier onlyMediators() {
-        if (!mediators[msg.sender]) {
+        if (!mediators[tx.origin]) {
             revert OnlyMediators();
         }
         _;
@@ -102,7 +101,7 @@ contract CriptoMilhas is Owned {
     mapping(address => bool) public mediators;
 
     constructor() {
-        owner = msg.sender;
+        owner = tx.origin;
         feesByCategory[Category.Other] = 10;
         feesByCategory[Category.AirlineTickets] = 8;
         feesByCategory[Category.Product] = 8;
@@ -119,27 +118,28 @@ contract CriptoMilhas is Owned {
         uint _value, // quantidade de tokens
         address _seller,
         Category _Category, // categoria do produto/serviço
-        uint daysToAddOnReceiveProduct
+        uint daysToAddOnReceiveProductOrService // dias a ser adicionado para que o buyer possa receber
+                                                // seu produto/serviço ou mesmo retornar de viagem
     ) external {
         require(
             _tokenAddress != address(0),
             unicode"Endereço do token inválido"
         );
-        require(daysToAddOnReceiveProduct > 7, unicode"Data inválida");
+        require(daysToAddOnReceiveProductOrService > 7, unicode"Data inválida");
         IERC20 token = IERC20(_tokenAddress);
-        uint256 tokenAmount = token.balanceOf(msg.sender);
+        uint256 tokenAmount = token.balanceOf(tx.origin);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
-        bool success = token.transferFrom(msg.sender, address(this), _value);
+        bool success = token.transferFrom(tx.origin, address(this), _value);
         require(success == true, unicode"Erro na transferência de tokens");
         purchases[_purchaseId] = Purchase({
             tokenAddress: _tokenAddress,
-            buyer: msg.sender,
+            buyer: tx.origin,
             seller: _seller,
             status: Status.Purchased,
             value: _value,
             purchaseDate: block.timestamp,
             confirmationDate: 0,
-            withdrawalAllowDate: daysToAddOnReceiveProduct * 1 days,
+            withdrawalAllowDate: daysToAddOnReceiveProductOrService * 1 days,
             withdrawnDate: 0,
             refundRequestedDate: 0,
             refundedDate: 0,
@@ -152,6 +152,7 @@ contract CriptoMilhas is Owned {
     ) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = Status.Confirmed;
+        _purchase.confirmationDate = block.timestamp;
     }
 
     function refundRequest(
@@ -160,16 +161,9 @@ contract CriptoMilhas is Owned {
         //nesta função, o comprador está querendo seu dinheiro de volta
         //mas poderá pedir apenas após 1 dia util (este é o tempo que o vendedor tem para confirmar)
         //se o vendedor não confirmar, o comprador poderá sacar normalmente após 1 dia
-        //se o vendedor confirmar, será necessário disputa e o mediador deverá decidir quem irá sacar o dinheiro
+        //se o vendedor confirmar, será necessário disputa e o mediador deverá decidir quem irá sacar os tokens
         Purchase storage _purchase = purchases[_purchaseId];
-        if (
-            //_purchase.status == Status.Purchased &&
-            block.timestamp < _purchase.purchaseDate + 1 days
-        ) {
-            revert(
-                unicode"Aguarde pelo menos 24hs. Se o vendedor não confirmar a venda, você poderá resgatar todo o valor enviado."
-            );
-        }
+        require((_purchase.purchaseDate + 1 days) < block.timestamp, unicode"Aguarde pelo menos 24hs. Se o vendedor não confirmar a venda, você poderá resgatar todo o valor enviado.");
         require(
             _purchase.status == Status.Confirmed ||
                 _purchase.status == Status.Purchased,
@@ -180,10 +174,7 @@ contract CriptoMilhas is Owned {
             _purchase.status = Status.RefundedToBuyer;
             _purchase.refundedDate = block.timestamp;
             IERC20 token = IERC20(_purchase.tokenAddress);
-            require(
-                token.transfer(msg.sender, _purchase.value),
-                unicode"Falha na transferência dos fundos"
-            );
+            require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
         } else {
             //o vendedor já havia confirmado, vai entrar em disputa
             _purchase.status = Status.RefundRequestedByBuyer;
@@ -191,74 +182,42 @@ contract CriptoMilhas is Owned {
         }
     }
 
-    function sellerWithdraw(
-        uint256 _purchaseId
-    ) external onlySeller(_purchaseId) {
+    function sellerWithdraw(uint256 _purchaseId) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
-        require(
-            _purchase.status == Status.Confirmed ||
-                _purchase.status == Status.SellerWithdrawalApproved,
-            unicode"Não é permitido fazer a retirada devido ao status atual da compra"
-        );
-        require(
-            block.timestamp > _purchase.withdrawalAllowDate,
-            unicode"Ainda não é permitido fazer a retirada, aguarde o prazo"
-        );
+        require(_purchase.status == Status.Confirmed || _purchase.status == Status.SellerWithdrawalApproved, unicode"Não é permitido fazer a retirada devido ao status atual da compra");
+        require(block.timestamp > _purchase.withdrawalAllowDate, unicode"Ainda não é permitido fazer a retirada, aguarde o prazo");
         _purchase.status = Status.WithdrawnBySeller;
         _purchase.withdrawnDate = block.timestamp;
-        uint feeValue = (_purchase.value * _purchase.purchaseFeePercentage) /
-            100;
-        // Realizar a transferência dos fundos para o vendedor
+        uint feeValue = (_purchase.value * _purchase.purchaseFeePercentage) / 100;
+        // Realizar a transferência dos fundos para o vendedor e também as taxas da plataforma para o owner
         IERC20 token = IERC20(_purchase.tokenAddress);
-        require(
-            token.transfer(msg.sender, _purchase.value - feeValue),
-            unicode"Falha na transferência dos fundos"
-        );
-        require(
-            token.transferFrom(address(this), owner, feeValue),
-            unicode"Falha na transferência dos fundos (taxas da plataforma)"
-        );
+        require(token.transfer(tx.origin, _purchase.value - feeValue), unicode"Falha na transferência dos fundos");
+        require(token.transferFrom(address(this), owner, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
     }
 
-    function buyerWithdraw(
-        uint256 _purchaseId
-    ) external onlyBuyer(_purchaseId) {
+    function buyerWithdraw (uint256 _purchaseId) external onlyBuyer(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
-        require(
-            _purchase.status == Status.BuyerWithdrawalApproved,
-            unicode"O status atual não permite a retirada"
-        );
+        require(_purchase.status == Status.BuyerWithdrawalApproved, unicode"O status atual não permite a retirada");
         _purchase.status = Status.RefundedToBuyer;
         _purchase.refundedDate = block.timestamp;
         IERC20 token = IERC20(_purchase.tokenAddress);
-        require(
-            token.transfer(msg.sender, _purchase.value),
-            unicode"Falha na transferência dos fundos"
-        );
+        require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
     }
 
-    function mediatorDecision(
-        uint256 _purchaseId,
-        Status _statusToSet
-    ) external onlyMediators {
+    function mediatorDecision (uint256 _purchaseId,Status _statusToSet) external onlyMediators {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = _statusToSet;
     }
 
-    function getPurchase(
-        uint256 _purchaseId
-    ) external view returns (Purchase memory) {
+    function getPurchase(uint256 _purchaseId) external view returns (Purchase memory) {
         return purchases[_purchaseId];
     }
 
-    function setFeeByCategory(
-        Category _purchaseCategory,
-        uint256 _fee
-    ) external onlyOwner {
+    function setFeeByCategory (Category _purchaseCategory,uint256 _fee) external onlyOwner {
         feesByCategory[_purchaseCategory] = _fee;
     }
 
-    function addMediators(address[] memory addresses) external onlyOwner {
+    function addMediators (address[] memory addresses) external onlyOwner {
         uint i = 0;
         while (i < addresses.length) {
             mediators[addresses[i]] = true;
@@ -266,7 +225,7 @@ contract CriptoMilhas is Owned {
         }
     }
 
-    function removeMediators(address[] memory addresses) external onlyOwner {
+    function removeMediators (address[] memory addresses) external onlyOwner {
         uint i = 0;
         while (i < addresses.length) {
             delete mediators[addresses[i]];
@@ -274,9 +233,7 @@ contract CriptoMilhas is Owned {
         }
     }
 
-    function getFeeByCategory(
-        Category _purchaseCategory
-    ) public view returns (uint256) {
+    function getFeeByCategory (Category _purchaseCategory) public view returns (uint256) {
         return feesByCategory[_purchaseCategory];
     }
 }
