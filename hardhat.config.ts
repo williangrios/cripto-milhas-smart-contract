@@ -1,7 +1,6 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 
-
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.19",
@@ -12,7 +11,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         url: "https://eth-mainnet.g.alchemy.com/v2/SKEZZEasoBhw2PixrKv9m2r8ZvB1mmnp",
-        blockNumber: 17801589,
+        blockNumber: 17951875,
       },
     },
     //setting mumbai testnet

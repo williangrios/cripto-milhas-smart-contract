@@ -5,7 +5,8 @@
 // não tem nenhum poder de fazer retiradas de fundos conforme você mesmo pode conferir no código.
 // As taxas que a plataforma recebe a título de intermediação são enviadas à wallet do owner todas
 // as vezes que o vendedor de passagem/produto faz sua retirada (ou seja, quando uma negociação
-// é bem sucedida), isso garante que nosso smart-contract sempre haverá fundos para pagar os usuários.
+// é bem sucedida), isso garante que nosso smart-contract sempre haverá fundos para pagar todos os usuários
+// bem como fazer a devolução caso uma compra não se concretize.
 
 // SPDX-License-Identifier: None
 pragma solidity 0.8.19;
@@ -37,25 +38,17 @@ contract CriptoMilhas is Owned {
     error OnlyMediators();
 
     modifier onlyBuyer(uint256 _purchaseId) {
-        Purchase memory _purchase = purchases[_purchaseId];
-        if (_purchase.buyer != tx.origin) {
-            revert OnlyBuyer();
-        }
+        if (purchases[_purchaseId].buyer != tx.origin) revert OnlyBuyer();
         _;
     }
 
     modifier onlySeller(uint256 _purchaseId) {
-        Purchase memory _purchase = purchases[_purchaseId];
-        if (_purchase.seller != tx.origin) {
-            revert OnlySeller();
-        }
+        if (purchases[_purchaseId].seller != tx.origin) revert OnlySeller();
         _;
     }
 
     modifier onlyMediators() {
-        if (!mediators[tx.origin]) {
-            revert OnlyMediators();
-        }
+        if (!mediators[tx.origin]) revert OnlyMediators();
         _;
     }
 
@@ -73,12 +66,13 @@ contract CriptoMilhas is Owned {
     enum Status {
         Purchased, // quando o comprador deposita os tokens
         Confirmed, // quando o vendedor confirma que vai enviar o produto ou emitir a passagem
-        WithdrawnBySeller, // quando o vendedor resgatar seus fundos
-        RefundRequestedByBuyer, // o comprador pediu para travar os fundos por demora na chegada do produto ou dos tickets
-        BuyerWithdrawalApproved, // o mediador decidiu que o buyer pode resgatar
-        SellerWithdrawalApproved, // o mediador decidiu que o seller pode resgatar
+        WithdrawnBySeller, // quando o vendedor resgatar seus fundos (negociação bem sucedida)
+        RefundRequestedByBuyer, // o comprador pediu para travar os fundos por demora na chegada do produto ou dos tickets (entra na mediação)
+        BuyerWithdrawalApproved, // o mediador decidiu que o buyer pode resgatar (podera resgatar imediatamente)
+        SellerWithdrawalApproved, // o mediador decidiu que o seller pode resgatar (deve esperar o prazo)
         RefundedToBuyer // quando o vendedor nao confirma em 24h e o comprador resgatou seu dinheiro
                         // também pode acontecer quando o vendedor decide devolver o dinheiro para o comprador
+                        // também ocorre quando o mediador devolve o dinheiro para o comprador
     }
 
     struct Purchase {
@@ -86,7 +80,7 @@ contract CriptoMilhas is Owned {
         address buyer;
         address seller;
         Status status; // status atual da compra
-        uint value; // quantidade de tokens
+        uint value; // quantidade de tokens/dolares
         uint purchaseDate;
         uint confirmationDate; // data em que o seller confirmou que vai vender
         uint withdrawalAllowDate; // data em que o seller poderá fazer o saque
@@ -123,9 +117,13 @@ contract CriptoMilhas is Owned {
     ) external {
         require(
             _tokenAddress != address(0),
-            unicode"Endereço do token inválido"
+            unicode"Endereço de token inválido"
         );
-        require(daysToAddOnReceiveProductOrService > 7, unicode"Data inválida");
+        require(
+            _seller != address(0),
+            unicode"Endereço do vendedor inválido"
+        );
+        require(daysToAddOnReceiveProductOrService > 10, unicode"Data inválida. Mínimo de 10 dias.");
         IERC20 token = IERC20(_tokenAddress);
         uint256 tokenAmount = token.balanceOf(tx.origin);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
@@ -139,7 +137,7 @@ contract CriptoMilhas is Owned {
             value: _value,
             purchaseDate: block.timestamp,
             confirmationDate: 0,
-            withdrawalAllowDate: daysToAddOnReceiveProductOrService * 1 days,
+            withdrawalAllowDate: block.timestamp + (daysToAddOnReceiveProductOrService * 1 days),
             withdrawnDate: 0,
             refundRequestedDate: 0,
             refundedDate: 0,
