@@ -37,12 +37,12 @@ contract CriptoMilhas is Owned {
     error OnlySeller();
     error OnlyMediators();
 
-    modifier onlyBuyer(uint256 _purchaseId) {
+    modifier onlyBuyer(bytes12 _purchaseId) {
         if (purchases[_purchaseId].buyer != tx.origin) revert OnlyBuyer();
         _;
     }
 
-    modifier onlySeller(uint256 _purchaseId) {
+    modifier onlySeller(bytes12 _purchaseId) {
         if (purchases[_purchaseId].seller != tx.origin) revert OnlySeller();
         _;
     }
@@ -91,7 +91,7 @@ contract CriptoMilhas is Owned {
     }
 
     mapping(Category => uint) feesByCategory;
-    mapping(uint256 => Purchase) purchases;
+    mapping(bytes12 => Purchase) purchases;
     mapping(address => bool) public mediators;
 
     constructor() {
@@ -107,7 +107,7 @@ contract CriptoMilhas is Owned {
     }
 
     function purchase(
-        uint256 _purchaseId,
+        bytes12 _purchaseId,
         address _tokenAddress, // endereço do smart contract da stablecoin escolhida
         uint _value, // quantidade de tokens
         address _seller,
@@ -146,7 +146,7 @@ contract CriptoMilhas is Owned {
     }
 
     function sellerConfirm(
-        uint256 _purchaseId
+        bytes12 _purchaseId
     ) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = Status.Confirmed;
@@ -154,7 +154,7 @@ contract CriptoMilhas is Owned {
     }
 
     function refundRequest(
-        uint256 _purchaseId
+        bytes12 _purchaseId
     ) external onlyBuyer(_purchaseId) {
         //nesta função, o comprador está querendo seu dinheiro de volta
         //mas poderá pedir apenas após 1 dia util (este é o tempo que o vendedor tem para confirmar)
@@ -180,7 +180,7 @@ contract CriptoMilhas is Owned {
         }
     }
 
-    function sellerWithdraw(uint256 _purchaseId) external onlySeller(_purchaseId) {
+    function sellerWithdraw(bytes12 _purchaseId) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         require(_purchase.status == Status.Confirmed || _purchase.status == Status.SellerWithdrawalApproved, unicode"Não é permitido fazer a retirada devido ao status atual da compra");
         require(block.timestamp > _purchase.withdrawalAllowDate, unicode"Ainda não é permitido fazer a retirada, aguarde o prazo");
@@ -193,7 +193,7 @@ contract CriptoMilhas is Owned {
         require(token.transferFrom(address(this), owner, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
     }
 
-    function buyerWithdraw (uint256 _purchaseId) external onlyBuyer(_purchaseId) {
+    function buyerWithdraw (bytes12 _purchaseId) external onlyBuyer(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         require(_purchase.status == Status.BuyerWithdrawalApproved, unicode"O status atual não permite a retirada");
         _purchase.status = Status.RefundedToBuyer;
@@ -202,12 +202,12 @@ contract CriptoMilhas is Owned {
         require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
     }
 
-    function mediatorDecision (uint256 _purchaseId,Status _statusToSet) external onlyMediators {
+    function mediatorDecision (bytes12 _purchaseId,Status _statusToSet) external onlyMediators {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = _statusToSet;
     }
 
-    function getPurchase(uint256 _purchaseId) external view returns (Purchase memory) {
+    function getPurchase(bytes12 _purchaseId) external view returns (Purchase memory) {
         return purchases[_purchaseId];
     }
 

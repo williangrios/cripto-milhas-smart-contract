@@ -26,10 +26,11 @@ const WHALE_BUYER = "0x748dE14197922c4Ae258c7939C7739f3ff1db573" //EOA
 
 
 async function deployCriptoMilhasFixture() {
-  const [owner, account2, mediator1, mediator2] = await ethers.getSigners();
+  const [owner, account2, mediator1, mediator2, simpleSeller] = await ethers.getSigners();
   const CM = await ethers.getContractFactory("CriptoMilhas");
   const cmContract = await CM.deploy()
   let stablecoin;
+  const purchaseId =  [0x1e, 34, 56, 78, 90, 12, 34, 56, 78, 90, 12, 34]
   let impersonateSeller;
   let impersonateBuyer;
   await hre.network.provider.request({
@@ -38,14 +39,18 @@ async function deployCriptoMilhasFixture() {
   })
   stablecoin = await ethers.getContractAt("IERC20", STABLECOIN)
   impersonateSeller = await ethers.getSigner(WHALE_SELLER)
-  console.log(`Balance stablecoin impersonateSeller ${await stablecoin.balanceOf(impersonateSeller.address)}`)
+  // console.log(`Balance stablecoin impersonateSeller ${await stablecoin.balanceOf(impersonateSeller.address)}`)
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [WHALE_BUYER]
   })
   impersonateBuyer = await ethers.getSigner(WHALE_BUYER)
-  console.log(`Balance stablecoin impersonateBuyer ${await stablecoin.balanceOf(impersonateBuyer.address)}`)
-  return { cmContract, owner, account2, mediator1, mediator2, impersonateSeller, impersonateBuyer, stablecoin }
+  // console.log(`Balance stablecoin impersonateBuyer ${await stablecoin.balanceOf(impersonateBuyer.address)}`)
+  return { cmContract, owner, account2, mediator1, mediator2, impersonateSeller, impersonateBuyer, stablecoin , simpleSeller, purchaseId}
+}
+
+function randomNumber(min, max){
+  return Math.floor(Math.random() * (max - min +1)) + min
 }
 
 async function skipDaysOnBlockchain(days){
@@ -114,140 +119,210 @@ describe('ADMIN MODULE', () => {
 
 describe('COMMERCIAL MODULE', () => {
   it.skip('Should create a new purchase by buyer and send money', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     console.log("allowed to spend",  await stablecoin.allowance(impersonateBuyer.address, cmContract.address));
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(1, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
     const contractAmount = await stablecoin.balanceOf(cmContract.address);
     console.log("contract balance", contractAmount);
     expect(contractAmount).be.equal(200000000)
   });
 
   it.skip('Should deny to create a new purchase with < 10 days', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     console.log("allowed to spend",  await stablecoin.allowance(impersonateBuyer.address, cmContract.address));
     const daysToAddOnReceiveProduct = 5;
     try {
-      await cmContract.connect(impersonateBuyer).purchase(1, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct);
+      await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct);
     } catch (error) {
       expect(error.message).to.contain("Data inválida. Mínimo de 10 dias");
     }
   });
 
   it.skip('Should be locked the money for 24hours while seller not confirm, function must revert', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     console.log("allowed to spend",  await stablecoin.allowance(impersonateBuyer.address, cmContract.address));
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(1, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
     try {
-      await cmContract.connect(impersonateBuyer).refundRequest(1);
+      await cmContract.connect(impersonateBuyer).refundRequest(purchaseId);
     } catch (error) {
       expect(error.message).to.contain("Aguarde pelo menos 24hs.");
     }
   })
 
   it.skip('Seller should confirm', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(1, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    const purchaseBefore = await cmContract.getPurchase(1)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    const purchaseBefore = await cmContract.getPurchase(purchaseId)
     expect(purchaseBefore.status).to.equal(0)
-    await cmContract.connect(impersonateSeller).sellerConfirm(1)
-    const purchaseAfter = await cmContract.getPurchase(1)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
+    const purchaseAfter = await cmContract.getPurchase(purchaseId)
     expect(purchaseAfter.status).to.equal(1)
   })
 
   it.skip('Should refundRequest after 24 hours if seller does not confirm', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(1, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
     await skipDaysOnBlockchain(1)
-    await cmContract.connect(impersonateBuyer).refundRequest(1);
-    const purchaseAfterRefunded = await cmContract.getPurchase(1)
+    await cmContract.connect(impersonateBuyer).refundRequest(purchaseId);
+    const purchaseAfterRefunded = await cmContract.getPurchase(purchaseId)
     expect(purchaseAfterRefunded.status).to.equal(6) // 6 = refundedToBuyer
   })
 
   it.skip('Should open dispute if seller had confirmed', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(123, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerConfirm(123)
-    const _purchaseConfirmedBySeller = await cmContract.getPurchase(123);
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
+    const _purchaseConfirmedBySeller = await cmContract.getPurchase(purchaseId);
     expect(_purchaseConfirmedBySeller.status).to.equal(1) // 1 = confirmed
     // //simulating past 24 hours on evm
     await skipDaysOnBlockchain(1)
-    await cmContract.connect(impersonateBuyer).refundRequest(123);
-    const _purchase = await cmContract.getPurchase(123);
+    await cmContract.connect(impersonateBuyer).refundRequest(purchaseId);
+    const _purchase = await cmContract.getPurchase(purchaseId);
     expect(_purchase.status).to.equal(3) // 3 = RefundRequestedByBuyer
   })
 
   it.skip('Seller Should not withdraw before time', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(123, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerConfirm(123)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
     // //simulating past 5 days on evm
     await skipDaysOnBlockchain(25)
     try {
-      await cmContract.connect(impersonateSeller).sellerWithdraw(123)
+      await cmContract.connect(impersonateSeller).sellerWithdraw(purchaseId)
     } catch (error) {
-      const _purchase = await cmContract.getPurchase(123);
-      console.log('deu erro-----', _purchase);
+      const _purchase = await cmContract.getPurchase(purchaseId);
       expect(error.message).to.contain("Ainda não é permitido fazer a retirada, aguarde o prazo");
     }
   })
 
   it.skip('Seller Should withdraw after time', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(123, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerConfirm(123)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
     // //simulating past 5 days on evm
     await skipDaysOnBlockchain(daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerWithdraw(123)
-    const _purchase = await cmContract.getPurchase(123);
+    await cmContract.connect(impersonateSeller).sellerWithdraw(purchaseId)
+    const _purchase = await cmContract.getPurchase(purchaseId);
     expect(_purchase.status).to.equal(2) // 2 = resgate bem sucedido
   })
 
   it.skip('Mediator Should set decision to buyer and buyer should withdraw', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner } = await deployCriptoMilhasFixture()
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(123, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerConfirm(123)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
     await cmContract.connect(owner).addMediators([mediator1.address])
-    await cmContract.connect(mediator1).mediatorDecision(123, 4)
-    const _purchaseBefore = await cmContract.getPurchase(123);
+    await cmContract.connect(mediator1).mediatorDecision(purchaseId, 4)
+    const _purchaseBefore = await cmContract.getPurchase(purchaseId);
     expect(_purchaseBefore.status).to.equal(4) // 4 = status 4 decisao favoravel ao comprador
-    await cmContract.connect(impersonateBuyer).buyerWithdraw(123)
-    const _purchaseAfter = await cmContract.getPurchase(123);
+    await cmContract.connect(impersonateBuyer).buyerWithdraw(purchaseId)
+    const _purchaseAfter = await cmContract.getPurchase(purchaseId);
     expect(_purchaseAfter.status).to.equal(6) // 6 = status 6 comprador resgatou
   })
 
-  it('Mediator Should set decision to seller and seller should withdraw', async function () {
-    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner } = await deployCriptoMilhasFixture()
+  it.skip('Mediator Should set decision to seller and seller should withdraw', async function () {
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner, purchaseId } = await deployCriptoMilhasFixture()
     await stablecoin.connect(impersonateBuyer).approve(cmContract.address, 200000000);
     const daysToAddOnReceiveProduct = 30;
-    await cmContract.connect(impersonateBuyer).purchase(123, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateSeller).sellerConfirm(123)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, 200000000, impersonateSeller.address, 1, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
     // //simulating past 5 days on evm
     await skipDaysOnBlockchain(daysToAddOnReceiveProduct)
-    await cmContract.connect(impersonateBuyer).refundRequest(123)
+    await cmContract.connect(impersonateBuyer).refundRequest(purchaseId)
     await cmContract.connect(owner).addMediators([mediator1.address])
-    await cmContract.connect(mediator1).mediatorDecision(123, 5)
-    const _purchaseBefore = await cmContract.getPurchase(123);
+    await cmContract.connect(mediator1).mediatorDecision(purchaseId, 5)
+    const _purchaseBefore = await cmContract.getPurchase(purchaseId);
     expect(_purchaseBefore.status).to.equal(5) // 5 = status 5 decisao favoravel ao vendedor
-    await cmContract.connect(impersonateSeller).sellerWithdraw(123)
-    const _purchaseAfter = await cmContract.getPurchase(123);
-    console.log(_purchaseAfter);
+    await cmContract.connect(impersonateSeller).sellerWithdraw(purchaseId)
+    const _purchaseAfter = await cmContract.getPurchase(purchaseId);
+    // console.log(_purchaseAfter);
     expect(_purchaseAfter.status).to.equal(2) // 2 = status 2 seller retirou
+  })
+})
+
+describe('COMMERCIAL MODULE CHECKING BALANCES', () => {
+  it('Testing balances in a sucessful transaction', async function () {
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner, simpleSeller, purchaseId } = await deployCriptoMilhasFixture()
+    const transactionValue = randomNumber(10000000, 1000000002)
+    // const transactionValue = randomNumber(1, 80000000000)
+    const setFee = randomNumber(0, 7)
+    await stablecoin.connect(impersonateBuyer).approve(cmContract.address, transactionValue);
+    const daysToAddOnReceiveProduct = 30;
+    const buyerBefore = await stablecoin.balanceOf(impersonateBuyer.address)
+    const contractBefore = await stablecoin.balanceOf(cmContract.address)
+    const sellerBefore = await stablecoin.balanceOf(simpleSeller.address)
+    const ownerBefore = await stablecoin.balanceOf(owner.address)
+    const fee = await cmContract.getFeeByCategory(setFee)
+    console.log('---------FIRST DATA------------')
+    console.log(`Transaction value ${transactionValue}`)
+    console.log(`Balance stablecoin impersonateBuyer BEFORE ${buyerBefore}`)
+    console.log(`Balance stablecoin seller BEFORE ${sellerBefore}`)
+    console.log(`Balance stablecoin CRIPTOMILHAS BEFORE ${contractBefore}`)
+    console.log(`Balance stablecoin owner BEFORE ${ownerBefore}`)
+    console.log(`FEE category ${setFee} of ${fee}%`)
+    // DEPOSITO
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, transactionValue, simpleSeller.address, setFee, daysToAddOnReceiveProduct)
+    const buyerAfterDeposit = await stablecoin.balanceOf(impersonateBuyer.address)
+    const sellerAfterDeposit = await stablecoin.balanceOf(simpleSeller.address)
+    const contractAfterDeposit = await stablecoin.balanceOf(cmContract.address)
+    const ownerAfterDeposit = await stablecoin.balanceOf(owner.address)
+    console.log('---------AFTER DEPOSIT------------')
+    console.log(`Balance stablecoin impersonateBuyer AFTER deposit ${buyerAfterDeposit}`)
+    console.log(`Balance stablecoin seller AFTER deposit ${sellerAfterDeposit}`)
+    console.log(`Balance stablecoin contract AFTER deposit ${contractAfterDeposit}`)
+    console.log(`Balance stablecoin OWNER AFTER deposit ${ownerAfterDeposit}`)
+    console.log(`Spent by buyer ${BigInt(buyerBefore) - BigInt(buyerAfterDeposit)}`);
+    expect( BigInt( buyerAfterDeposit) + BigInt(contractAfterDeposit) ).to.equal( BigInt(buyerBefore) )
+
+    // CONFIRMANDO E RETIRANDO
+    await cmContract.connect(simpleSeller).sellerConfirm(purchaseId)
+    skipDaysOnBlockchain(40)
+    await cmContract.connect(simpleSeller).sellerWithdraw(purchaseId)
+    const buyerAfterWithdraw = await stablecoin.balanceOf(impersonateBuyer.address)
+    const sellerAfterWithdraw = await stablecoin.balanceOf(simpleSeller.address)
+    const contractAfterWithdraw = await stablecoin.balanceOf(cmContract.address)
+    const ownerAfterWithdraw = await stablecoin.balanceOf(owner.address)
+    console.log('---------AFTER WITHDRAW------------')
+    console.log(`Balance stablecoin impersonateBuyer AFTER withdraw ${buyerAfterWithdraw}`)
+    console.log(`Balance stablecoin seller AFTER withdraw ${sellerAfterWithdraw}`)
+    console.log(`Balance stablecoin contract AFTER withdraw ${contractAfterWithdraw}`)
+    console.log(`Balance stablecoin OWNER AFTER withdraw ${ownerAfterWithdraw}`)
+    expect( BigInt( ownerAfterWithdraw) + BigInt(sellerAfterWithdraw) + BigInt(buyerAfterWithdraw) ).to.equal( BigInt(buyerBefore) )
+  })
+
+  it('testing balances ---- Mediator Should set decision to buyer and buyer should withdraw', async function () {
+    const { cmContract, impersonateBuyer, impersonateSeller, stablecoin, mediator1, owner, simpleSeller, purchaseId } = await deployCriptoMilhasFixture()
+    const transactionValue = randomNumber(10000000, 1000000002)
+    const setFee = randomNumber(0, 7)
+    await stablecoin.connect(impersonateBuyer).approve(cmContract.address, transactionValue);
+    const daysToAddOnReceiveProduct = 30;
+    const buyerBefore = await stablecoin.balanceOf(impersonateBuyer.address)
+    await cmContract.connect(impersonateBuyer).purchase(purchaseId, stablecoin.address, transactionValue, impersonateSeller.address, setFee, daysToAddOnReceiveProduct)
+    await cmContract.connect(impersonateSeller).sellerConfirm(purchaseId)
+    await cmContract.connect(owner).addMediators([mediator1.address])
+    await cmContract.connect(mediator1).mediatorDecision(purchaseId, 4)
+    const _purchaseBefore = await cmContract.getPurchase(purchaseId);
+    expect(_purchaseBefore.status).to.equal(4) // 4 = status 4 decisao favoravel ao comprador
+    await cmContract.connect(impersonateBuyer).buyerWithdraw(purchaseId)
+    const _purchaseAfter = await cmContract.getPurchase(purchaseId);
+    expect(_purchaseAfter.status).to.equal(6) // 6 = status 6 comprador resgatou
+    const buyerAfter = await stablecoin.balanceOf(impersonateBuyer.address)
+    expect(buyerBefore).to.equal(buyerAfter)
   })
 })
