@@ -88,6 +88,7 @@ contract CriptoMilhas is Owned {
         uint refundRequestedDate; // data em que o buyer solicitou mediação
         uint refundedDate; // data que os valores foram restituidos ao buyer (devolvidos na totalidade, sem taxas)
         uint purchaseFeePercentage;
+        bool postponed;
     }
 
     mapping(Category => uint) feesByCategory;
@@ -143,7 +144,8 @@ contract CriptoMilhas is Owned {
             withdrawnDate: 0,
             refundRequestedDate: 0,
             refundedDate: 0,
-            purchaseFeePercentage: getFeeByCategory(_Category)
+            purchaseFeePercentage: getFeeByCategory(_Category),
+            postponed: false
         });
     }
 
@@ -153,6 +155,17 @@ contract CriptoMilhas is Owned {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = Status.Confirmed;
         _purchase.confirmationDate = block.timestamp;
+    }
+
+    function postponePayment(
+        bytes12 _purchaseId,
+        uint _days
+    ) external onlyBuyer(_purchaseId) {
+        require(_days <31 , unicode'Você pode pedir adiamento do prazo para liberação dos tokens em no máximo 30 dias. Caso você entenda que não seja suficiente, poderá solicitar o bloqueio dos tokens.');
+        Purchase storage _purchase = purchases[_purchaseId];
+        require(!_purchase.postponed, unicode'Você pode pedir adiamento apenas uma vez. Mas também podera solicitar o bloqueio dos tokens.');
+        _purchase.postponed = true;
+        _purchase.withdrawalAllowDate = _purchase.withdrawalAllowDate + (_days * 1 days);
     }
 
     function refundRequest(
