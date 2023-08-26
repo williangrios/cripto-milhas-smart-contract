@@ -93,9 +93,11 @@ contract CriptoMilhas is Owned {
     mapping(Category => uint) feesByCategory;
     mapping(bytes12 => Purchase) purchases;
     mapping(address => bool) public mediators;
+    address private feeReceiver;
 
     constructor() {
         owner = tx.origin;
+        feeReceiver = tx.origin;
         feesByCategory[Category.Other] = 10;
         feesByCategory[Category.AirlineTickets] = 8;
         feesByCategory[Category.Product] = 8;
@@ -190,7 +192,7 @@ contract CriptoMilhas is Owned {
         // Realizar a transferência dos fundos para o vendedor e também as taxas da plataforma para o owner
         IERC20 token = IERC20(_purchase.tokenAddress);
         require(token.transfer(tx.origin, _purchase.value - feeValue), unicode"Falha na transferência dos fundos");
-        require(token.transferFrom(address(this), owner, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
+        require(token.transferFrom(address(this), feeReceiver, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
     }
 
     function buyerWithdraw (bytes12 _purchaseId) external onlyBuyer(_purchaseId) {
@@ -229,6 +231,14 @@ contract CriptoMilhas is Owned {
             delete mediators[addresses[i]];
             i++;
         }
+    }
+
+    function setNewFeeReceiver (address _feeReceiver) external onlyOwner {
+      feeReceiver = _feeReceiver;
+    }
+
+    function getFeeReceiver() public view returns (address) {
+        return feeReceiver;
     }
 
     function getFeeByCategory (Category _purchaseCategory) public view returns (uint256) {
