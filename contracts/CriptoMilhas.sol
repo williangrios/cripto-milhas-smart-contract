@@ -8,7 +8,7 @@
 // é bem sucedida), isso garante que nosso smart-contract sempre haverá fundos para pagar todos os usuários
 // bem como fazer a devolução caso uma compra não se concretize.
 
-// SPDX-License-Identifier: None
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
 contract Owned {
@@ -37,12 +37,12 @@ contract CriptoMilhas is Owned {
     error OnlySeller();
     error OnlyMediators();
 
-    modifier onlyBuyer(bytes12 _purchaseId) {
+    modifier onlyBuyer(string memory _purchaseId) {
         if (purchases[_purchaseId].buyer != tx.origin) revert OnlyBuyer();
         _;
     }
 
-    modifier onlySeller(bytes12 _purchaseId) {
+    modifier onlySeller(string memory _purchaseId) {
         if (purchases[_purchaseId].seller != tx.origin) revert OnlySeller();
         _;
     }
@@ -92,7 +92,7 @@ contract CriptoMilhas is Owned {
     }
 
     mapping(Category => uint) feesByCategory;
-    mapping(bytes12 => Purchase) purchases;
+    mapping(string => Purchase) purchases;
     mapping(address => bool) public mediators;
     address private feeReceiver;
 
@@ -110,7 +110,7 @@ contract CriptoMilhas is Owned {
     }
 
     function purchase(
-        bytes12 _purchaseId,
+        string memory _purchaseId,
         address _tokenAddress, // endereço do smart contract da stablecoin escolhida
         uint _value, // quantidade de tokens
         address _seller,
@@ -150,7 +150,7 @@ contract CriptoMilhas is Owned {
     }
 
     function sellerConfirm(
-        bytes12 _purchaseId
+        string memory _purchaseId
     ) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = Status.Confirmed;
@@ -158,7 +158,7 @@ contract CriptoMilhas is Owned {
     }
 
     function postponePayment(
-        bytes12 _purchaseId,
+        string memory _purchaseId,
         uint _days
     ) external onlyBuyer(_purchaseId) {
         require(_days <31 , unicode'Você pode pedir adiamento do prazo para liberação dos tokens em no máximo 30 dias. Caso você entenda que não seja suficiente, poderá solicitar o bloqueio dos tokens.');
@@ -169,7 +169,7 @@ contract CriptoMilhas is Owned {
     }
 
     function refundRequest(
-        bytes12 _purchaseId
+        string memory _purchaseId
     ) external onlyBuyer(_purchaseId) {
         //nesta função, o comprador está querendo seu dinheiro de volta
         //mas poderá pedir apenas após 1 dia util (este é o tempo que o vendedor tem para confirmar)
@@ -195,7 +195,7 @@ contract CriptoMilhas is Owned {
         }
     }
 
-    function sellerWithdraw(bytes12 _purchaseId) external onlySeller(_purchaseId) {
+    function sellerWithdraw(string memory _purchaseId) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         require(_purchase.status == Status.Confirmed || _purchase.status == Status.SellerWithdrawalApproved, unicode"Não é permitido fazer a retirada devido ao status atual da compra");
         require(block.timestamp > _purchase.withdrawalAllowDate, unicode"Ainda não é permitido fazer a retirada, aguarde o prazo");
@@ -208,7 +208,7 @@ contract CriptoMilhas is Owned {
         require(token.transferFrom(address(this), feeReceiver, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
     }
 
-    function buyerWithdraw (bytes12 _purchaseId) external onlyBuyer(_purchaseId) {
+    function buyerWithdraw (string memory _purchaseId) external onlyBuyer(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
         require(_purchase.status == Status.BuyerWithdrawalApproved, unicode"O status atual não permite a retirada");
         _purchase.status = Status.RefundedToBuyer;
@@ -217,12 +217,12 @@ contract CriptoMilhas is Owned {
         require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
     }
 
-    function mediatorDecision (bytes12 _purchaseId,Status _statusToSet) external onlyMediators {
+    function mediatorDecision (string memory _purchaseId,Status _statusToSet) external onlyMediators {
         Purchase storage _purchase = purchases[_purchaseId];
         _purchase.status = _statusToSet;
     }
 
-    function getPurchase(bytes12 _purchaseId) external view returns (Purchase memory) {
+    function getPurchase(string memory _purchaseId) external view returns (Purchase memory) {
         return purchases[_purchaseId];
     }
 

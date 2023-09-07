@@ -21,5 +21,5 @@ FAZENDO DEPLOY DE UM CONTRATO
 VERIFICANDO UM CONTRATO
 -para verificar o contrato preciso de uma apikey que consigo no etherscan(e a mesma pra sepolia e goerli tb) ou polygonscan(e a mesma pra mumbai tb)
 -entao configuro o hardhat.config.ts
--depois rodo o comando npx hardhat verify --network mimbai 0xenderecodocontrato
+-depois rodo o comando npx hardhat verify --network mumbai 0xenderecodocontrato
 

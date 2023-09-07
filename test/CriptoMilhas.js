@@ -26,7 +26,8 @@ async function deployCriptoMilhasFixture() {
   const CM = await ethers.getContractFactory("CriptoMilhas")
   const cmContract = await CM.deploy()
   let stablecoin
-  const purchaseId =  [0x1e, 34, 56, 78, 90, 12, 34, 56, 78, 90, 12, 34]
+  // const purchaseId =  [0x1e, 34, 56, 78, 90, 12, 34, 56, 78, 90, 12, 34]
+  const purchaseId =  '6239898d23u9d329'
   let impersonateSeller
   let impersonateBuyer
   await hre.network.provider.request({

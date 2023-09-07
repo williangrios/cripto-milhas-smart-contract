@@ -16,19 +16,19 @@ const config: HardhatUserConfig = {
     //setting forking data
     hardhat: {
       forking: {
-        url: process.env.MAINNET_RPC_URL,
+        url: 'https://eth-mainnet.g.alchemy.com/v2/SKEZZEasoBhw2PixrKv9m2r8ZvB1mmnp',
         blockNumber: 17951875,
       },
     },
-    //setting mumbai testnet
+    // setting mumbai testnet
     mumbai: {
-      url: process.env.MUMBAI_RPC_URL,
-      accounts: [process.env.MAIN_ACCOUNT]
+      url: 'https://polygon-mumbai.g.alchemy.com/v2/di4KdLr9SEe1oT-DO1muEFJzSsBWZD5F',
+      accounts: ['7487a5f9ae2a5de9ffe962fd6444ebca37ff97ab4952b246ac1665bb6d83efa6']
     }
   },
   etherscan: {
     apiKey: {
-      polygonMumbai: process.env.POLYGONSCAN_API_KEY
+      polygonMumbai: 'XS33Y7XEMA2YGDHDSHV5ZYH3FQ372M18TU'
   }
 }
 }
