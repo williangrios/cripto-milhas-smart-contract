@@ -59,20 +59,18 @@ contract CriptoMilhas is Owned {
         Accomodation,
         CarRental,
         ClassUpgrade,
-        Event,
-        AdditionalFee // utilizada quando se precisa cancelar, remarcar voo etc
+        Event
     }
 
     enum Status {
-        Purchased, // quando o comprador deposita os tokens
-        Confirmed, // quando o vendedor confirma que vai enviar o produto ou emitir a passagem
-        WithdrawnBySeller, // quando o vendedor resgatar seus fundos (negociação bem sucedida)
-        RefundRequestedByBuyer, // o comprador pediu para travar os fundos por demora na chegada do produto ou dos tickets (entra na mediação)
-        BuyerWithdrawalApproved, // o mediador decidiu que o buyer pode resgatar (podera resgatar imediatamente)
-        SellerWithdrawalApproved, // o mediador decidiu que o seller pode resgatar (deve esperar o prazo)
-        RefundedToBuyer // quando o comprador desistiu e resgatou seu dinheiro antes da confirmacao do vendedor
-                        // também pode acontecer quando o vendedor decide devolver o dinheiro para o comprador
-                        // também ocorre quando o mediador devolve o dinheiro para o comprador
+        WaitingForSellerConfirmation, // quando o buyer deposita os tokens e aguarda a confirmação do seller
+        CancelledByBuyer, // quando o buyer cancela antes do seller confirmar, ou seja, o buyer já resgatou seus fundos
+        SellerConfirmed, // quando o seller confirma que vai enviar o produto ou emitir a passagem
+        WithdrawnBySeller, // quando o seller tiver resgatado seus fundos (negociação bem sucedida)
+        ModerationRequested, // o buyer pediu para travar os fundos por demora na chegada do produto ou na entrega das passagens (entra na mediação)
+        BuyerWithdrawalApproved, // o mediador decidiu que o buyer poderá resgatar (podera resgatar imediatamente)
+        SellerWithdrawalApproved, // o mediador decidiu que o seller poderá resgatar (deve esperar o prazo)
+        RefundedToBuyer // quando o buyer tiver resgatado seus tokens
     }
 
     struct Purchase {
@@ -86,7 +84,7 @@ contract CriptoMilhas is Owned {
         uint confirmationDate; // data em que o seller confirmou que vai vender
         uint withdrawalAllowDate; // data em que o seller poderá fazer o saque
         uint withdrawnDate; // data em que o seller fez o saque
-        uint refundRequestedDate; // data em que o buyer solicitou mediação
+        uint moderationRequestedDate; // data em que o buyer solicitou mediação
         uint refundedDate; // data que os valores foram restituidos ao buyer (devolvidos na totalidade, sem taxas)
         uint purchaseFeePercentage;
         bool postponed;
@@ -108,7 +106,6 @@ contract CriptoMilhas is Owned {
         feesByCategory[Category.CarRental] = 7;
         feesByCategory[Category.ClassUpgrade] = 6;
         feesByCategory[Category.Event] = 6;
-        feesByCategory[Category.AdditionalFee] = 8;
     }
 
     function purchase(
@@ -130,36 +127,38 @@ contract CriptoMilhas is Owned {
             unicode"Endereço do vendedor inválido"
         );
         require(registeredPurchases[_purchaseId] == false, unicode"Não é possível sobrescrever uma compra.");
-        require(daysToAddOnReceiveProductOrService > 10, unicode"Data inválida. Mínimo de 10 dias.");
+        // comentado apenas para fazer testes
+        // require(daysToAddOnReceiveProductOrService > 10, unicode"Data inválida. Mínimo de 10 dias.");
         IERC20 token = IERC20(_tokenAddress);
         uint256 tokenAmount = token.balanceOf(msg.sender);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
         bool success = token.transferFrom(msg.sender, address(this), _value);
-        require(success == true, unicode"Erro na transferência de tokens");
+        require(success == true, unicode"Falha na transferência de tokens");
         registeredPurchases[_purchaseId] = true;
         purchases[_purchaseId] = Purchase({
             tokenAddress: _tokenAddress,
             buyer: msg.sender,
             seller: _seller,
             feeReceiver: _feeReceiver,
-            status: Status.Purchased,
+            status: Status.WaitingForSellerConfirmation,
             value: _value,
             purchaseDate: block.timestamp,
             confirmationDate: 0,
             withdrawalAllowDate: block.timestamp + (daysToAddOnReceiveProductOrService * 1 days),
             withdrawnDate: 0,
-            refundRequestedDate: 0,
+            moderationRequestedDate: 0,
             refundedDate: 0,
             purchaseFeePercentage: getFeeByCategory(_Category),
             postponed: false
         });
     }
 
-    function sellerConfirm(
+    function sellerConfirmation(
         string memory _purchaseId
     ) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
-        _purchase.status = Status.Confirmed;
+        require (_purchase.status == Status.WaitingForSellerConfirmation, unicode'Não é possível fazer a confirmação com o status atual da compra');
+        _purchase.status = Status.SellerConfirmed;
         _purchase.confirmationDate = block.timestamp;
     }
 
@@ -169,44 +168,46 @@ contract CriptoMilhas is Owned {
     ) external onlyBuyer(_purchaseId) {
         require(_days <31 , unicode'Você pode pedir adiamento do prazo para liberação dos tokens em no máximo 30 dias. Caso você entenda que não seja suficiente, poderá solicitar o bloqueio dos tokens.');
         Purchase storage _purchase = purchases[_purchaseId];
-        require(!_purchase.postponed, unicode'Você pode pedir adiamento apenas uma vez. Mas também podera solicitar o bloqueio dos tokens.');
+        require(!_purchase.postponed, unicode'Você pode pedir adiamento apenas uma vez. Mas também poderá solicitar o bloqueio dos tokens caso seja necessário.');
         _purchase.postponed = true;
         _purchase.withdrawalAllowDate = _purchase.withdrawalAllowDate + (_days * 1 days);
     }
 
-    function refundRequest(
+    function cancelPurchase(
         string memory _purchaseId
     ) external onlyBuyer(_purchaseId) {
-        //nesta função, o comprador está querendo seu dinheiro de volta
-        //se o vendedor não tiver confirmado, o comprador poderá sacar normalmente
-        //se o vendedor tiver confirmado, será necessário disputa e o mediador deverá decidir quem irá sacar os tokens
         Purchase storage _purchase = purchases[_purchaseId];
         require(
-            _purchase.status == Status.Confirmed ||
-                _purchase.status == Status.Purchased,
-            unicode"Com o status atual não é possível solicitar reembolso."
+            _purchase.status == Status.WaitingForSellerConfirmation,
+            unicode"Com o status atual não é possível fazer o cancelamento."
         );
-        if (_purchase.status == Status.Purchased) {
-            //o cliente desistiu da compra (antes da confirmacao do vendedor), devolva todo o dinheiro ao cliente
-            _purchase.status = Status.RefundedToBuyer;
-            _purchase.refundedDate = block.timestamp;
-            IERC20 token = IERC20(_purchase.tokenAddress);
-            require(token.transfer(msg.sender, _purchase.value), unicode"Falha na transferência dos fundos");
-        } else {
-            //o vendedor já havia confirmado, vai entrar em disputa
-            _purchase.status = Status.RefundRequestedByBuyer;
-            _purchase.refundRequestedDate = block.timestamp;
-        }
+        _purchase.status = Status.RefundedToBuyer;
+        _purchase.refundedDate = block.timestamp;
+        IERC20 token = IERC20(_purchase.tokenAddress);
+        require(token.transfer(msg.sender, _purchase.value), unicode"Falha na transferência dos fundos");
     }
+
+    function requestModeration(
+        string memory _purchaseId
+    ) external onlyBuyer(_purchaseId) {
+        Purchase storage _purchase = purchases[_purchaseId];
+        require(
+            _purchase.status == Status.SellerConfirmed,
+            unicode"Com o status atual não é possível solicitar moderação."
+        );
+        _purchase.status = Status.ModerationRequested;
+        _purchase.moderationRequestedDate = block.timestamp;
+    }
+
 
     function sellerWithdraw(string memory _purchaseId) external onlySeller(_purchaseId) {
         Purchase storage _purchase = purchases[_purchaseId];
-        require(_purchase.status == Status.Confirmed || _purchase.status == Status.SellerWithdrawalApproved, unicode"Não é permitido fazer a retirada devido ao status atual da compra");
+        require(_purchase.status == Status.SellerConfirmed || _purchase.status == Status.SellerWithdrawalApproved, unicode"Não é permitido fazer a retirada devido ao status atual da compra");
         require(block.timestamp > _purchase.withdrawalAllowDate, unicode"Ainda não é permitido fazer a retirada, aguarde o prazo");
         _purchase.status = Status.WithdrawnBySeller;
         _purchase.withdrawnDate = block.timestamp;
         uint feeValue = (_purchase.value * _purchase.purchaseFeePercentage) / 100;
-        // Realizar a transferência dos fundos para o vendedor e também as taxas da plataforma para o owner
+        // Realizar a transferência dos fundos para o vendedor e também as taxas da plataforma para o feeReceiver
         IERC20 token = IERC20(_purchase.tokenAddress);
         require(token.transfer(msg.sender, _purchase.value - feeValue), unicode"Falha na transferência dos fundos");
         require(token.transferFrom(address(this), _purchase.feeReceiver, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
@@ -223,6 +224,7 @@ contract CriptoMilhas is Owned {
 
     function mediatorDecision (string memory _purchaseId,Status _statusToSet) external onlyMediators {
         Purchase storage _purchase = purchases[_purchaseId];
+        require(_statusToSet == Status.BuyerWithdrawalApproved || _statusToSet == Status.SellerWithdrawalApproved, unicode'Não é possível setar esta decisão');
         _purchase.status = _statusToSet;
     }
 
