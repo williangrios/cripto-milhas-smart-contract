@@ -16,7 +16,7 @@ contract Owned {
     address public owner;
 
     modifier onlyOwner() {
-        if (owner != tx.origin) {
+        if (owner != msg.sender) {
             revert OnlyOwner();
         }
         _;
@@ -38,17 +38,17 @@ contract CriptoMilhas is Owned {
     error OnlyMediators();
 
     modifier onlyBuyer(string memory _purchaseId) {
-        if (purchases[_purchaseId].buyer != tx.origin) revert OnlyBuyer();
+        if (purchases[_purchaseId].buyer != msg.sender) revert OnlyBuyer();
         _;
     }
 
     modifier onlySeller(string memory _purchaseId) {
-        if (purchases[_purchaseId].seller != tx.origin) revert OnlySeller();
+        if (purchases[_purchaseId].seller != msg.sender) revert OnlySeller();
         _;
     }
 
     modifier onlyMediators() {
-        if (!mediators[tx.origin]) revert OnlyMediators();
+        if (!mediators[msg.sender]) revert OnlyMediators();
         _;
     }
 
@@ -70,7 +70,7 @@ contract CriptoMilhas is Owned {
         RefundRequestedByBuyer, // o comprador pediu para travar os fundos por demora na chegada do produto ou dos tickets (entra na mediação)
         BuyerWithdrawalApproved, // o mediador decidiu que o buyer pode resgatar (podera resgatar imediatamente)
         SellerWithdrawalApproved, // o mediador decidiu que o seller pode resgatar (deve esperar o prazo)
-        RefundedToBuyer // quando o vendedor nao confirma em 24h e o comprador resgatou seu dinheiro
+        RefundedToBuyer // quando o comprador desistiu e resgatou seu dinheiro antes da confirmacao do vendedor
                         // também pode acontecer quando o vendedor decide devolver o dinheiro para o comprador
                         // também ocorre quando o mediador devolve o dinheiro para o comprador
     }
@@ -79,6 +79,7 @@ contract CriptoMilhas is Owned {
         address tokenAddress; // endereço do smart-contract da stablecoin
         address buyer;
         address seller;
+        address feeReceiver;
         Status status; // status atual da compra
         uint value; // quantidade de tokens/dolares
         uint purchaseDate;
@@ -93,12 +94,13 @@ contract CriptoMilhas is Owned {
 
     mapping(Category => uint) feesByCategory;
     mapping(string => Purchase) purchases;
+    mapping(string => bool) private registeredPurchases;
     mapping(address => bool) public mediators;
-    address private feeReceiver;
+    mapping(address => bool) public feeReceiver;
 
     constructor() {
-        owner = tx.origin;
-        feeReceiver = tx.origin;
+        owner = msg.sender;
+        feeReceiver[msg.sender] = true;
         feesByCategory[Category.Other] = 10;
         feesByCategory[Category.AirlineTickets] = 8;
         feesByCategory[Category.Product] = 8;
@@ -114,6 +116,7 @@ contract CriptoMilhas is Owned {
         address _tokenAddress, // endereço do smart contract da stablecoin escolhida
         uint _value, // quantidade de tokens
         address _seller,
+        address _feeReceiver,
         Category _Category, // categoria do produto/serviço
         uint daysToAddOnReceiveProductOrService // dias a ser adicionado para que o buyer possa receber
                                                 // seu produto/serviço ou mesmo retornar de viagem
@@ -126,16 +129,19 @@ contract CriptoMilhas is Owned {
             _seller != address(0),
             unicode"Endereço do vendedor inválido"
         );
+        require(registeredPurchases[_purchaseId] == false, unicode"Não é possível sobrescrever uma compra.");
         require(daysToAddOnReceiveProductOrService > 10, unicode"Data inválida. Mínimo de 10 dias.");
         IERC20 token = IERC20(_tokenAddress);
-        uint256 tokenAmount = token.balanceOf(tx.origin);
+        uint256 tokenAmount = token.balanceOf(msg.sender);
         require(tokenAmount >= _value, "Saldo insuficiente de tokens");
-        bool success = token.transferFrom(tx.origin, address(this), _value);
+        bool success = token.transferFrom(msg.sender, address(this), _value);
         require(success == true, unicode"Erro na transferência de tokens");
+        registeredPurchases[_purchaseId] = true;
         purchases[_purchaseId] = Purchase({
             tokenAddress: _tokenAddress,
-            buyer: tx.origin,
+            buyer: msg.sender,
             seller: _seller,
+            feeReceiver: _feeReceiver,
             status: Status.Purchased,
             value: _value,
             purchaseDate: block.timestamp,
@@ -172,22 +178,20 @@ contract CriptoMilhas is Owned {
         string memory _purchaseId
     ) external onlyBuyer(_purchaseId) {
         //nesta função, o comprador está querendo seu dinheiro de volta
-        //mas poderá pedir apenas após 1 dia util (este é o tempo que o vendedor tem para confirmar)
-        //se o vendedor não confirmar, o comprador poderá sacar normalmente após 1 dia
-        //se o vendedor confirmar, será necessário disputa e o mediador deverá decidir quem irá sacar os tokens
+        //se o vendedor não tiver confirmado, o comprador poderá sacar normalmente
+        //se o vendedor tiver confirmado, será necessário disputa e o mediador deverá decidir quem irá sacar os tokens
         Purchase storage _purchase = purchases[_purchaseId];
-        require((_purchase.purchaseDate + 1 days) < block.timestamp, unicode"Aguarde pelo menos 24hs. Se o vendedor não confirmar a venda, você poderá resgatar todo o valor enviado.");
         require(
             _purchase.status == Status.Confirmed ||
                 _purchase.status == Status.Purchased,
             unicode"Com o status atual não é possível solicitar reembolso."
         );
         if (_purchase.status == Status.Purchased) {
-            //vendedor não confirmou em 24hs, devolva todo o dinheiro ao comprador
+            //o cliente desistiu da compra (antes da confirmacao do vendedor), devolva todo o dinheiro ao cliente
             _purchase.status = Status.RefundedToBuyer;
             _purchase.refundedDate = block.timestamp;
             IERC20 token = IERC20(_purchase.tokenAddress);
-            require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
+            require(token.transfer(msg.sender, _purchase.value), unicode"Falha na transferência dos fundos");
         } else {
             //o vendedor já havia confirmado, vai entrar em disputa
             _purchase.status = Status.RefundRequestedByBuyer;
@@ -204,8 +208,8 @@ contract CriptoMilhas is Owned {
         uint feeValue = (_purchase.value * _purchase.purchaseFeePercentage) / 100;
         // Realizar a transferência dos fundos para o vendedor e também as taxas da plataforma para o owner
         IERC20 token = IERC20(_purchase.tokenAddress);
-        require(token.transfer(tx.origin, _purchase.value - feeValue), unicode"Falha na transferência dos fundos");
-        require(token.transferFrom(address(this), feeReceiver, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
+        require(token.transfer(msg.sender, _purchase.value - feeValue), unicode"Falha na transferência dos fundos");
+        require(token.transferFrom(address(this), _purchase.feeReceiver, feeValue), unicode"Falha na transferência dos fundos (taxas da plataforma)");
     }
 
     function buyerWithdraw (string memory _purchaseId) external onlyBuyer(_purchaseId) {
@@ -214,7 +218,7 @@ contract CriptoMilhas is Owned {
         _purchase.status = Status.RefundedToBuyer;
         _purchase.refundedDate = block.timestamp;
         IERC20 token = IERC20(_purchase.tokenAddress);
-        require(token.transfer(tx.origin, _purchase.value), unicode"Falha na transferência dos fundos");
+        require(token.transfer(msg.sender, _purchase.value), unicode"Falha na transferência dos fundos");
     }
 
     function mediatorDecision (string memory _purchaseId,Status _statusToSet) external onlyMediators {
@@ -247,11 +251,15 @@ contract CriptoMilhas is Owned {
     }
 
     function setNewFeeReceiver (address _feeReceiver) external onlyOwner {
-      feeReceiver = _feeReceiver;
+      feeReceiver[_feeReceiver] = true;
     }
 
-    function getFeeReceiver() public view returns (address) {
-        return feeReceiver;
+    function removeFeeReceiver (address _feeReceiverToRemove) external onlyOwner {
+      feeReceiver[_feeReceiverToRemove] = false;
+    }
+
+    function isFeeReceiver (address _feeReceiver) external view returns(bool) {
+      return feeReceiver[_feeReceiver];
     }
 
     function getFeeByCategory (Category _purchaseCategory) public view returns (uint256) {
